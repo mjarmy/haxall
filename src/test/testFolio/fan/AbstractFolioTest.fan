@@ -30,13 +30,17 @@ class AbstractFolioTest : HaystackTest
       list.addNotNull(Type.find("testSkyarcd::Folio3TestImpl", false)?.make)
     catch (Err e)
       e.trace
+    try
+      list.addNotNull(Type.find("haven::HavenFolioTestImpl", false)?.make)
+    catch (Err e)
+      e.trace
+
     impls = list
   }
 
   override Void teardown()
   {
-    if (folio != null) close
-    tempDir.delete
+    impls.each |impl| { impl.teardown() }
   }
 
   FolioTestImpl? curImpl
@@ -57,7 +61,10 @@ class AbstractFolioTest : HaystackTest
     echo("-- Run:  $doMethod($impl.name) ...")
     curImpl = impl
     doMethod.callOn(this, [,])
-    teardown
+
+    if (folio != null) close
+    tempDir.delete
+
     curImpl = null
   }
 
@@ -141,6 +148,18 @@ class AbstractFolioTest : HaystackTest
     folio.commit(Diff.make(folio.readById(rec.id), null, Diff.remove))
   }
 
+//////////////////////////////////////////////////////////////////////////
+// verify methods
+//////////////////////////////////////////////////////////////////////////
+
+  Void verifyRecs(Dict a, Dict b)
+  {
+    if (curImpl.supportsRecIdentity)
+      verifySame(a, b)
+    else
+      verifyDictEq(a, b)
+  }
+
 }
 
 **************************************************************************
@@ -152,6 +171,22 @@ abstract const class FolioTestImpl
   abstract Str name()
   abstract Bool isFull()
   abstract Folio open(AbstractFolioTest t, FolioConfig config)
+
+  ** Hook to tear down the test implementation
+  virtual Void teardown() { }
+
+  ** Return whether this Folio implementation has the concept of a current version.
+  virtual Bool supportsCurVer() { return true }
+
+  ** Return whether this Folio implementation should compare recs by
+  ** verifySame(), or by verifyDictEq().
+  virtual Bool supportsRecIdentity() { return true }
+
+  ** Return whether this Folio implementation allows transient tags.
+  virtual Bool supportsTransientTags() { return true }
+
+  ** Return whether this Folio implementation uses the "mod" tag to support concurrency.
+  virtual Bool supportsConcurrentModCheck() { return true }
 }
 
 const class FolioFlatFileTestImpl : FolioTestImpl

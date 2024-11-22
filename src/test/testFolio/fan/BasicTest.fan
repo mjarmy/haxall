@@ -25,7 +25,7 @@ class BasicTest : AbstractFolioTest
   {
     // initial state
     f := open
-    ver := f.curVer
+    ver := curImpl.supportsCurVer ? f.curVer : 0
 
     // add a, b, c
     a := addRec(["dis":"A", "size":n(10)])
@@ -39,14 +39,14 @@ class BasicTest : AbstractFolioTest
     verifyErr(UnknownRecErr#) { f.readById(Ref.gen, true) }
 
     // readById good
-    verifySame(f.readById(c.id), c)
+    verifyRecs(f.readById(c.id), c)
 
     // readByIdsList
     list := f.readByIdsList([a.id, Ref.gen, b.id], false)
     verifyEq(list.size, 3)
-    verifySame(list[0], a)
-    verifySame(list[1], null)
-    verifySame(list[2], b)
+    verifyRecs(list[0], a)
+    verifyNull(list[1])
+    verifyRecs(list[2], b)
     verifyErr(UnknownRecErr#) { f.readByIdsList([a.id, Ref.gen, b.id]) }
     verifyErr(UnknownRecErr#) { f.readByIdsList([a.id, Ref.gen, b.id], true) }
 
@@ -65,7 +65,7 @@ class BasicTest : AbstractFolioTest
     verifyErr(UnknownRecErr#) { f.read(Filter("bad"), true) }
 
     // read good
-    verifySame(f.read(Filter("size==20")), b)
+    verifyRecs(f.read(Filter("size==20")), b)
     verifyDictEq(f.read(Filter("id == $b.id.toCode")), b)
     verifyDictEq(f.read(Filter("id == $b.id.toCode and size == 20")), b)
     verifyEq(f.read(Filter("id == $b.id.toCode and size == 10"), false), null)
@@ -76,13 +76,13 @@ class BasicTest : AbstractFolioTest
     verifyEq(list.size, 2)
     if (list[0].id == b.id)
     {
-      verifySame(list[0], b)
-      verifySame(list[1], c)
+      verifyRecs(list[0], b)
+      verifyRecs(list[1], c)
     }
     else
     {
-      verifySame(list[0], c)
-      verifySame(list[1], b)
+      verifyRecs(list[0], c)
+      verifyRecs(list[1], b)
     }
 
     // readAll
@@ -121,7 +121,7 @@ class BasicTest : AbstractFolioTest
     verifyDictEq(f.readById(a.id), a)
     verifyDictEq(f.readById(b.id), b)
     verifyDictEq(f.readById(c.id), c)
-    ver = f.curVer
+    ver = curImpl.supportsCurVer ? f.curVer : 0
 
     // make some persistent diffs
     aMod := a->mod; bMod := b->mod; cMod := c->mod;
@@ -151,34 +151,37 @@ class BasicTest : AbstractFolioTest
     ver = verifyCurVerChange(f, ver)
 
     // make transient diffs to b and b
-    aMod = a->mod; bMod = b->mod; cMod = c->mod;
-    diffs = f.commitAll([Diff(b, ["tchange":"bt-1"], Diff.transient), Diff(c, ["tchange":"ct-1"], Diff.transient)])
-    ver = verifyCurVerNoChange(f, ver)
-    b = f.readById(b.id)
-    c = f.readById(c.id)
-    verifyDictEq(b, diffs[0].newRec)
-    verifyDictEq(c, diffs[1].newRec)
-    verifyEq(a["pchange"], "ap-2")
-    verifyEq(b["tchange"], "bt-1")
-    verifyEq(c["pchange"], "cp-1")
-    verifyEq(c["tchange"], "ct-1")
-    verifyEq(a->mod, aMod)
-    verifyEq(b->mod, bMod)
-    verifyEq(c->mod, cMod)
+    if (curImpl.supportsTransientTags)
+    {
+      aMod = a->mod; bMod = b->mod; cMod = c->mod;
+      diffs = f.commitAll([Diff(b, ["tchange":"bt-1"], Diff.transient), Diff(c, ["tchange":"ct-1"], Diff.transient)])
+      ver = verifyCurVerNoChange(f, ver)
+      b = f.readById(b.id)
+      c = f.readById(c.id)
+      verifyDictEq(b, diffs[0].newRec)
+      verifyDictEq(c, diffs[1].newRec)
+      verifyEq(a["pchange"], "ap-2")
+      verifyEq(b["tchange"], "bt-1")
+      verifyEq(c["pchange"], "cp-1")
+      verifyEq(c["tchange"], "ct-1")
+      verifyEq(a->mod, aMod)
+      verifyEq(b->mod, bMod)
+      verifyEq(c->mod, cMod)
 
-    // reopen, and verify transient changes didn't persist
-    f = reopen
-    a = f.readById(a.id)
-    b = f.readById(b.id)
-    c = f.readById(c.id)
-    ver = f.curVer
-    verifyEq(a["pchange"], "ap-2")
-    verifyEq(b["tchange"], null)
-    verifyEq(c["pchange"], "cp-1")
-    verifyEq(c["tchange"], null)
-    verify(a->mod == aMod)
-    verify(b->mod == bMod)
-    verify(c->mod == cMod)
+      // reopen, and verify transient changes didn't persist
+      f = reopen
+      a = f.readById(a.id)
+      b = f.readById(b.id)
+      c = f.readById(c.id)
+      ver = curImpl.supportsCurVer ? f.curVer : 0
+      verifyEq(a["pchange"], "ap-2")
+      verifyEq(b["tchange"], null)
+      verifyEq(c["pchange"], "cp-1")
+      verifyEq(c["tchange"], null)
+      verify(a->mod == aMod)
+      verify(b->mod == bMod)
+      verify(c->mod == cMod)
+    }
 
     // modify a to generate new mod, then verify concurrent checks
     oldA := a
@@ -188,9 +191,12 @@ class BasicTest : AbstractFolioTest
     ver = verifyCurVerChange(f, ver)
     verify(newA->mod > oldA->mod)
     verify(newB->mod > oldB->mod)
-    verifyErr(ConcurrentChangeErr#) { f.commitAllAsync([Diff(oldA, ["change":"X!"]), Diff(newB, ["change":"X!"])]).dicts }
-    verifyErr(ConcurrentChangeErr#) { f.commitAllAsync([Diff(newA, ["change":"X!"]), Diff(oldB, ["change":"X!"])]).dicts }
-    verifyErr(ConcurrentChangeErr#) { f.commitAllAsync([Diff(oldA, ["change":"X!"]), Diff(oldB, ["change":"X!"], Diff.force)]).dicts }
+    if (curImpl.supportsConcurrentModCheck())
+    {
+      verifyErr(ConcurrentChangeErr#) { f.commitAllAsync([Diff(oldA, ["change":"X!"]), Diff(newB, ["change":"X!"])]).dicts }
+      verifyErr(ConcurrentChangeErr#) { f.commitAllAsync([Diff(newA, ["change":"X!"]), Diff(oldB, ["change":"X!"])]).dicts }
+      verifyErr(ConcurrentChangeErr#) { f.commitAllAsync([Diff(oldA, ["change":"X!"]), Diff(oldB, ["change":"X!"], Diff.force)]).dicts }
+    }
     verifyEq(f.readById(a.id)["change"], "a-2")
     verifyEq(f.readById(b.id)["change"], "b-1")
 
@@ -241,6 +247,8 @@ class BasicTest : AbstractFolioTest
 
   Int verifyCurVerChange(Folio f, Int prev)
   {
+    if (!curImpl.supportsCurVer) return 0
+
     f.sync
     cur := f.curVer
     verify(cur > prev)
@@ -249,6 +257,8 @@ class BasicTest : AbstractFolioTest
 
   Int verifyCurVerNoChange(Folio f, Int prev)
   {
+    if (!curImpl.supportsCurVer) return 0
+
     cur := f.curVer
     verifyEq(cur, prev)
     return prev
